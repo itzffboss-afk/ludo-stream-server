@@ -3,7 +3,6 @@ from aiohttp import web
 
 web_clients = set()
 
-# --- THE WEBSITE IS NOW BUILT INTO THE SERVER ---
 html_code = """
 <!DOCTYPE html>
 <html lang="en">
@@ -29,6 +28,7 @@ html_code = """
         .spinner { width: 50px; height: 50px; border: 4px solid rgba(56, 189, 248, 0.1); border-top: 4px solid var(--primary); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         #loader-text { font-family: 'JetBrains Mono', monospace; color: var(--text-dim); font-size: 13px; text-align: center; }
+        #counter { position: absolute; top: 10px; right: 10px; color: #fff; background: #000; padding: 5px 10px; border-radius: 10px; font-family: monospace; }
     </style>
 </head>
 <body>
@@ -36,6 +36,7 @@ html_code = """
         <div class="brand">Ludo Stream<span>TACTICAL VIEWER</span></div>
         <div class="status-pill connecting" id="status">CONNECTING...</div>
     </div>
+    <div id="counter">Frames: 0</div>
     <div class="stream-container">
         <div id="loader">
             <div class="spinner"></div>
@@ -45,28 +46,30 @@ html_code = """
     </div>
 
     <script>
-        // Automatically connects to the current domain (Render URL)
         const SERVER_URL = "wss://" + window.location.host + "/web"; 
-        
         let ws;
+        let frames = 0;
         const img = document.getElementById('screen');
         const status = document.getElementById('status');
         const loader = document.getElementById('loader');
-        const loaderText = document.getElementById('loader-text');
+        const counter = document.getElementById('counter');
 
         function connect() {
             status.innerText = "CONNECTING...";
             status.className = "status-pill connecting";
-            
             ws = new WebSocket(SERVER_URL);
 
             ws.onopen = () => {
                 status.innerText = "WAITING FOR PHONE...";
                 status.className = "status-pill connecting";
-                loaderText.innerText = "Server connected. Start streaming on the Game Phone.";
             };
 
             ws.onmessage = (event) => {
+                if (event.data === "TEST") return; // Ignore test messages
+                
+                frames++;
+                counter.innerText = "Frames: " + frames;
+
                 if (img.style.display === 'none') {
                     img.style.display = 'block';
                     loader.style.display = 'none';
@@ -81,13 +84,10 @@ html_code = """
                 status.className = "status-pill";
                 img.style.display = 'none';
                 loader.style.display = 'flex';
-                loaderText.innerText = "Connection lost. Reconnecting in 3s...";
                 setTimeout(connect, 3000);
             };
-
             ws.onerror = () => { ws.close(); };
         }
-
         connect();
     </script>
 </body>
@@ -95,20 +95,19 @@ html_code = """
 """
 
 async def home_handler(request):
-    # Serves the HTML directly from the server
     return web.Response(text=html_code, content_type='text/html')
 
 async def websocket_handler(request):
     ws = web.WebSocketResponse()
     await ws.prepare(request)
     web_clients.add(ws)
-    print("Website Viewer Connected")
+    # Send a test message so the browser knows the connection is alive
+    await ws.send_str("TEST")
     try:
         async for msg in ws:
             pass
     finally:
         web_clients.remove(ws)
-        print("Website Viewer Disconnected")
     return ws
 
 async def upload_handler(request):
@@ -120,10 +119,10 @@ async def upload_handler(request):
                     if not ws.closed:
                         try:
                             await ws.send_str(image_data)
-                        except Exception as e:
+                        except Exception:
                             pass
             return web.Response(text="OK")
-        except Exception as e:
+        except Exception:
             return web.Response(status=500, text="Error")
     return web.Response(status=400)
 
