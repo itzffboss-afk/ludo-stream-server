@@ -1,36 +1,35 @@
 import os
-import asyncio
-import websockets
+from aiohttp import web, WSMsgType
 
-clients = {"phone": None, "web": set()}
+web_clients = set()
 
-async def handler(ws, path):
-    role = path.strip('/')
-    
-    if role == 'phone':
-        clients['phone'] = ws
-        try:
-            async for message in ws:
-                for web_client in list(clients['web']):
-                    try:
-                        await web_client.send(message)
-                    except:
-                        clients['web'].discard(web_client)
-        finally:
-            clients['phone'] = None
-            
-    elif role == 'web':
-        clients['web'].add(ws)
-        try:
-            await ws.wait_closed()
-        finally:
-            clients['web'].discard(ws)
+async def websocket_handler(request):
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+    web_clients.add(ws)
+    try:
+        async for msg in ws:
+            pass # Ignore messages from the viewer
+    finally:
+        web_clients.remove(ws)
+    return ws
 
-async def main():
-    port = int(os.environ.get("PORT", 8765))
-    async with websockets.serve(handler, "0.0.0.0", port, max_size=None):
-        print(f"Server running on port {port}")
-        await asyncio.Future()
+async def upload_handler(request):
+    if request.method == 'POST':
+        # Get the Base64 string from the phone
+        image_data = await request.text()
+        if image_data:
+            # Send to all connected viewers
+            for ws in web_clients:
+                if not ws.closed:
+                    await ws.send_str(image_data)
+        return web.Response(text="OK")
+    return web.Response(status=400)
 
-if __name__ == "__main__":
-    asyncio.run(main())
+app = web.Application()
+app.router.add_get('/web', websocket_handler)
+app.router.add_post('/upload', upload_handler)
+
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 8080))
+    web.run_app(app, port=port)
