@@ -46,6 +46,8 @@ html_code = """
         const SERVER_URL = "wss://" + window.location.host + "/web"; 
         let ws;
         let frames = 0;
+        let isRendering = false; // LOCK: Prevents the browser from freezing
+        
         const img = document.getElementById('screen');
         
         function connect() {
@@ -62,17 +64,24 @@ html_code = """
             ws.onmessage = (event) => {
                 if (event.data === "TEST") return;
                 
+                // If the browser is still drawing the last frame, drop this one
+                if (isRendering) return; 
+                isRendering = true;
+                
                 frames++;
                 document.getElementById('counter').innerText = "Frames: " + frames;
                 
-                // FIX: Set the source, and use onload to reveal the image
                 img.src = "data:image/jpeg;base64," + event.data;
                 
+                // When the image finishes loading, unlock and hide the spinner
                 img.onload = () => {
-                    img.style.display = 'block';
-                    document.getElementById('loader').style.display = 'none';
-                    document.getElementById('status').innerText = "LIVE STREAM";
-                    document.getElementById('status').className = "status-pill live";
+                    isRendering = false;
+                    if (img.style.display === 'none') {
+                        img.style.display = 'block';
+                        document.getElementById('loader').style.display = 'none';
+                        document.getElementById('status').innerText = "LIVE STREAM";
+                        document.getElementById('status').className = "status-pill live";
+                    }
                 };
             };
             
