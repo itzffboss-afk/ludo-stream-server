@@ -1,8 +1,6 @@
 import os
-import asyncio
 from aiohttp import web
 
-# Store connected web clients
 web_clients = set()
 
 html_code = """
@@ -45,10 +43,10 @@ html_code = """
     </div>
 
     <script>
-        // Use wss:// for HTTPS
         const SERVER_URL = "wss://" + window.location.host + "/web"; 
         let ws;
         let frames = 0;
+        const img = document.getElementById('screen');
         
         function connect() {
             document.getElementById('status').innerText = "CONNECTING...";
@@ -67,24 +65,24 @@ html_code = """
                 frames++;
                 document.getElementById('counter').innerText = "Frames: " + frames;
                 
-                const img = document.getElementById('screen');
-                if (img.style.display === 'none') {
+                // FIX: Set the source, and use onload to reveal the image
+                img.src = "data:image/jpeg;base64," + event.data;
+                
+                img.onload = () => {
                     img.style.display = 'block';
                     document.getElementById('loader').style.display = 'none';
                     document.getElementById('status').innerText = "LIVE STREAM";
                     document.getElementById('status').className = "status-pill live";
-                }
-                img.src = "data:image/jpeg;base64," + event.data;
+                };
             };
             
             ws.onclose = () => {
                 document.getElementById('status').innerText = "RECONNECTING...";
                 document.getElementById('status').className = "status-pill";
-                document.getElementById('screen').style.display = 'none';
+                img.style.display = 'none';
                 document.getElementById('loader').style.display = 'flex';
                 setTimeout(connect, 2000);
             };
-            
             ws.onerror = () => { ws.close(); };
         }
         connect();
@@ -97,18 +95,15 @@ async def home_handler(request):
     return web.Response(text=html_code, content_type='text/html')
 
 async def websocket_handler(request):
-    # 60-second heartbeat keeps Render from dropping the connection
     ws = web.WebSocketResponse(heartbeat=60)
     await ws.prepare(request)
     web_clients.add(ws)
-    print(f"[+] Viewer Connected. Total Viewers: {len(web_clients)}")
     await ws.send_str("TEST")
     try:
         async for msg in ws:
             pass
     finally:
         web_clients.remove(ws)
-        print(f"[-] Viewer Disconnected. Total Viewers: {len(web_clients)}")
     return ws
 
 async def upload_handler(request):
@@ -116,16 +111,14 @@ async def upload_handler(request):
         try:
             image_data = await request.text()
             if image_data:
-                print(f"[>] Received Image ({len(image_data)} bytes). Sending to {len(web_clients)} viewers.")
                 for ws in list(web_clients):
                     if not ws.closed:
                         try:
                             await ws.send_str(image_data)
-                        except Exception as e:
-                            print(f"[!] Failed to send to viewer: {e}")
+                        except Exception:
+                            pass
             return web.Response(text="OK")
-        except Exception as e:
-            print(f"[!] Upload Error: {e}")
+        except Exception:
             return web.Response(status=500, text="Error")
     return web.Response(status=400)
 
